@@ -2,9 +2,20 @@ from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
 import jwt
 import uuid
 import time
+import os
+import yaml
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# -----------------------------
+# Constants
+# -----------------------------
 
 ALLOWED_ORIGIN = "https://dash-mu1aya.example.com"
 EMAIL = "23f1002476@ds.study.iitm.ac.in"
@@ -24,6 +35,10 @@ dQIDAQAB
 
 app = FastAPI()
 
+# -----------------------------
+# CORS
+# -----------------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[ALLOWED_ORIGIN],
@@ -32,6 +47,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -----------------------------
+# Middleware
+# -----------------------------
 
 @app.middleware("http")
 async def add_headers(request: Request, call_next):
@@ -45,9 +63,14 @@ async def add_headers(request: Request, call_next):
     return response
 
 
+# ==========================================================
+# Assignment 1 : /stats
+# ==========================================================
+
 @app.get("/stats")
 def stats(values: str = Query(...)):
     nums = [int(x.strip()) for x in values.split(",") if x.strip()]
+
     total = sum(nums)
 
     return {
@@ -60,12 +83,17 @@ def stats(values: str = Query(...)):
     }
 
 
+# ==========================================================
+# Assignment 2 : /verify
+# ==========================================================
+
 class VerifyRequest(BaseModel):
     token: str
 
 
 @app.post("/verify")
-async def verify(req: VerifyRequest):
+def verify(req: VerifyRequest):
+
     try:
         claims = jwt.decode(
             req.token,
@@ -83,7 +111,98 @@ async def verify(req: VerifyRequest):
         }
 
     except jwt.PyJWTError:
+
         return JSONResponse(
             status_code=401,
             content={"valid": False},
         )
+
+
+# ==========================================================
+# Assignment 3 : /effective-config
+# ==========================================================
+
+def to_bool(value):
+    return str(value).lower() in ("true", "1", "yes", "on")
+
+
+def coerce(key, value):
+    if key in ("port", "workers"):
+        return int(value)
+
+    if key == "debug":
+        return to_bool(value)
+
+    return str(value)
+
+
+@app.get("/effective-config")
+def effective_config(set: list[str] = Query(default=[])):
+    # -----------------------------
+    # 1. Defaults
+    # -----------------------------
+    config = {
+        "port": 8000,
+        "workers": 1,
+        "debug": False,
+        "log_level": "info",
+        "api_key": "default-secret-000",
+    }
+
+    # -----------------------------
+    # 2. YAML
+    # -----------------------------
+    env = os.getenv("APP_ENV", "development")
+    yaml_file = f"config.{env}.yaml"
+
+    if os.path.exists(yaml_file):
+        with open(yaml_file) as f:
+            yaml_config = yaml.safe_load(f) or {}
+
+        for k, v in yaml_config.items():
+            config[k] = coerce(k, v)
+
+    # -----------------------------
+    # 3. .env / Environment
+    # -----------------------------
+
+    mapping = {
+        "APP_PORT": "port",
+        "APP_WORKERS": "workers",
+        "APP_DEBUG": "debug",
+        "APP_LOG_LEVEL": "log_level",
+        "APP_API_KEY": "api_key",
+    }
+
+    for env_key, cfg_key in mapping.items():
+        value = os.getenv(env_key)
+
+        if value is not None:
+            config[cfg_key] = coerce(cfg_key, value)
+
+    # Alias
+    alias = os.getenv("NUM_WORKERS")
+
+    if alias is not None:
+        config["workers"] = int(alias)
+
+    # -----------------------------
+    # 4. CLI Overrides
+    # -----------------------------
+
+    for item in set:
+
+        if "=" not in item:
+            continue
+
+        key, value = item.split("=", 1)
+
+        config[key] = coerce(key, value)
+
+    # -----------------------------
+    # Secret masking
+    # -----------------------------
+
+    config["api_key"] = "****"
+
+    return config
