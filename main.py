@@ -41,9 +41,9 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[ALLOWED_ORIGIN],
+    allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -74,7 +74,6 @@ def stats(values: str = Query(...)):
     total = sum(nums)
 
     return {
-        "email": EMAIL,
         "count": len(nums),
         "sum": total,
         "min": min(nums),
